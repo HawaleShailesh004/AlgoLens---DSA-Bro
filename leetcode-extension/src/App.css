@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+body {
+  width: 415px;
+  height: 600px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+
+}
+
+/* Custom Scrollbar for the chat area */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #18181b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mask fade effect for horizontal scroll (optional visual flair) */
+.mask-fade {
+  -webkit-mask-image: linear-gradient(to right, black 90%, transparent 100%);
+  mask-image: linear-gradient(to right, black 90%, transparent 100%);
+}
+
+
+
+
+/* 1. Target Rectangular Nodes (The default boxes) */
+.node rect {
+  /* This effectively simulates padding by ensuring the shape is larger */
+  rx: 4px !important;
+  /* Optional: Slight rounding for aesthetics */
+  ry: 4px !important;
+}
+
+/* 2. Target Circular Nodes (The ((Circle)) syntax) */
+.node circle {
+  /* Force circles to be larger relative to their text */
+  r: 25px !important;
+  /* Increases the radius explicitly */
+  stroke-width: 2px !important;
+}
+
+/* 3. General "Glow" & Visibility Improvements (Matches your Neon theme) */
+.node rect,
+.node circle,
+.node polygon {
+  fill: #27272a !important;
+  /* Dark Zinc-800 Background */
+  stroke: #f97316 !important;
+  /* Neon Orange Border */
+  stroke-width: 2px !important;
+
+  filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.4));
+  /* Orange Glow */
+}
+
+.edgePath path {
+  stroke: #fb923c !important;
+  /*BrightOrangeLines*/
+  stroke-width: 2px !important;
+  filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.2));
+  -webkit-filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.2));
+}

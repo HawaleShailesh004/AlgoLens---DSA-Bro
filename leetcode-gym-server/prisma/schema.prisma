@@ -1,0 +1,27 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid()) // We will generate this in the extension
+  createdAt DateTime @default(now())
+  logs      Log[]
+}
+
+model Log {
+  id           String   @id @default(cuid())
+  userId       String
+  slug         String   // e.g., "two-sum"
+  title        String
+  difficulty   String   // "Easy", "Medium", "Hard" (User perception)
+  confidence   Int      // 1 (Struggled) to 3 (Crushed it)
+  reviewedAt   DateTime @default(now())
+  nextReviewAt DateTime // Calculated date
+  
+  user         User     @relation(fields: [userId], references: [id])
+}

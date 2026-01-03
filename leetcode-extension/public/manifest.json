@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "AlgoLens",
+  "description": "Master Data Structures with AI-generated flowcharts, smart review scheduling, and instant complexity analysis.",
+  "version": "1.0",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://leetcode.com/*",
+    "https://leetcode-api-pied.vercel.app/*"
+  ],
+  "icons": {
+    "16": "logo.png",
+    "32": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Leetcode Bro",
+    "default_icon": "logo.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://leetcode.com/problems/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
