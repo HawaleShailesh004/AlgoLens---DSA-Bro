@@ -8,9 +8,22 @@ generator client {
 }
 
 model User {
-  id        String   @id @default(uuid()) // We will generate this in the extension
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  password           String
+  createdAt          DateTime @default(now())
+  preferredLanguage  String?  @default("cpp")
+  groqApiKey         String?
+  quickPrompts       String?  // JSON array of { label, text }
+  logs               Log[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
-  logs      Log[]
 }
 
 model Log {
@@ -22,6 +35,20 @@ model Log {
   confidence   Int      // 1 (Struggled) to 3 (Crushed it)
   reviewedAt   DateTime @default(now())
   nextReviewAt DateTime // Calculated date
+
+  category     String?  @default("General") // e.g. "Two Pointers", "DFS"
+  approach     String?  // Short summary of logic
+  complexity   String?  // e.g. "O(n) time, O(1) space"
+  codeSnippet  String?  // The core logic (not full boilerplate)
+
+  // NEW TRACKING FIELDS
+  timeTaken    Int?     // In seconds
+  timeLimit    Int?     // In seconds (null if stopwatch mode)
+  metTimeLimit Boolean? // True if finished before countdown hit 0
+  
+  // CODE STORAGE
+  language     String?  // e.g. "python3", "cpp", "javascript"
+  solution     String?  // The optimal code snippet
   
   user         User     @relation(fields: [userId], references: [id])
 }

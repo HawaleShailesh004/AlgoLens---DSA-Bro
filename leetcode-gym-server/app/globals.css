@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Larger base for readability (default 16px → 18px) */
+html {
+  font-size: 18px;
+}

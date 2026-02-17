@@ -1,6 +1,8 @@
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
+import { getUserIdFromRequest } from "@/lib/auth";
+import { chatPostBodySchema } from "@/lib/validation";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -9,22 +11,30 @@ const redis = new Redis({
 
 export async function POST(req: Request) {
   try {
-    const { messages, problemContext, userApiKey } = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const parsed = chatPostBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const { messages, problemContext, userApiKey } = parsed.data;
 
     // --- 1. KEY SELECTION & RATE LIMITING ---
     let apiKey = userApiKey;
-    let isCommunityKey = false;
     const baseUrl = process.env.GROQ_BASE_URL;
 
     if (!apiKey) {
       apiKey = process.env.GROQ_API_KEY;
-      isCommunityKey = true;
+      const userId = await getUserIdFromRequest(req);
+      const usageKey = userId ? `usage:user:${userId}` : `usage:ip:${req.headers.get("x-forwarded-for") || "unknown"}`;
 
-      // Identify user by IP
-      const ip = req.headers.get("x-forwarded-for") || "unknown";
-      const usageKey = `usage:${ip}`;
-
-      // Check Limit (10 Free Messages)
       const currentUsage = (await redis.get<number>(usageKey)) || 0;
       if (currentUsage >= 10) {
         return NextResponse.json(
@@ -36,10 +46,8 @@ export async function POST(req: Request) {
           { status: 429 }
         );
       }
-
-      // Increment Usage
       await redis.incr(usageKey);
-      if (currentUsage === 0) await redis.expire(usageKey, 86400); // Reset in 24h
+      if (currentUsage === 0) await redis.expire(usageKey, 86400);
     }
 
     // --- 2. THE GYM BRO SYSTEM PROMPT ---
