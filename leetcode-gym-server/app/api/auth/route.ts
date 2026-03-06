@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     const msg = parsed.error.flatten().fieldErrors;
     return NextResponse.json(
       { error: "Validation failed", details: msg },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       if (existing) {
         return NextResponse.json(
           { error: "User already exists" },
-          { status: 400 }
+          { status: 400 },
         );
       }
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -49,11 +49,23 @@ export async function POST(req: Request) {
       if (!user) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
+
+      // OAuth users don't have passwords
+      if (!user.password) {
+        return NextResponse.json(
+          {
+            error:
+              "This account uses OAuth. Please sign in with Google or GitHub.",
+          },
+          { status: 401 },
+        );
+      }
+
       const isValid = await bcrypt.compare(password, user.password);
       if (!isValid) {
         return NextResponse.json(
           { error: "Invalid password" },
-          { status: 401 }
+          { status: 401 },
         );
       }
       const token = await signToken(user.id, user.email);
@@ -69,7 +81,7 @@ export async function POST(req: Request) {
     console.error("Auth error:", e);
     return NextResponse.json(
       { error: "Server error", message: (e as Error).message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

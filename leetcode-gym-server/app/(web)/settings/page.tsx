@@ -1,451 +1,499 @@
-// settings.jsx — AlgoLens (Redesigned)
-
 "use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, Loader2, CheckCircle, Eye, EyeOff, Key, Globe, MessageSquarePlus, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Lock,
+  Loader2,
+  CheckCircle,
+  Key,
+  Globe,
+  MessageSquare,
+  Plus,
+  Trash2,
+  RotateCcw,
+} from "lucide-react";
 import { getStoredToken } from "../layout";
 
-type QuickPromptItem = { label: string; text: string };
+const LANGUAGES = [
+  { value: "cpp", label: "C++" },
+  { value: "java", label: "Java" },
+  { value: "python", label: "Python" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "go", label: "Go" },
+  { value: "rust", label: "Rust" },
+];
+
+const DEFAULT_QUICK_PROMPTS: { label: string; text: string }[] = [
+  { label: "Hint", text: "Give me a small hint to get started, but don't give the answer." },
+  { label: "Complexity", text: "What is the Time and Space complexity of my approach?" },
+  { label: "Edge Cases", text: "What are some critical edge cases I should handle?" },
+  { label: "Find Bug", text: "I suspect there's a bug in my logic. Can you help me find it?" },
+  { label: "Approach", text: "Explain the high-level logic for this problem without code." },
+  { label: "Optimize", text: "Is there a more optimized way to solve this?" },
+  { label: "Rate Code", text: "Here is my approach. Rate my code on Cleanliness, Time Complexity, and Space Complexity. Be strict." },
+  { label: "Visualize", text: "Visualize this data structure or algorithm logic with a diagram." },
+];
+
+type QuickPromptRow = { label: string; text: string };
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [currentPassword,  setCurrentPassword]  = useState("");
-  const [newPassword,      setNewPassword]      = useState("");
-  const [confirmPassword,  setConfirmPassword]  = useState("");
-  const [loading,          setLoading]          = useState(false);
-  const [error,            setError]            = useState("");
-  const [success,          setSuccess]          = useState(false);
-  const [showCurrent,      setShowCurrent]      = useState(false);
-  const [showNew,          setShowNew]          = useState(false);
+  const token = getStoredToken();
 
-  // Shared settings (mirror extension)
+  // Password section
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  // Account & preferences (synced with extension)
   const [preferredLanguage, setPreferredLanguage] = useState("cpp");
-  const [groqApiKey, setGroqApiKey] = useState("");
-  const [groqApiKeySet, setGroqApiKeySet] = useState(false);
-  const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([]);
-  const [settingsLoading, setSettingsLoading] = useState(true);
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [settingsError, setSettingsError] = useState("");
-  const [newPromptLabel, setNewPromptLabel] = useState("");
-  const [newPromptText, setNewPromptText] = useState("");
+  const [aiProvider, setAiProvider] = useState<"groq" | "openai">("groq");
+  const [apiKey, setApiKey] = useState("");
+  const [quickPrompts, setQuickPrompts] = useState<QuickPromptRow[]>([]);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+  const [prefsSuccess, setPrefsSuccess] = useState(false);
 
   useEffect(() => {
-    if (!getStoredToken()) router.push("/login");
-  }, [router]);
-
-  // Load settings
-  useEffect(() => {
-    const token = getStoredToken();
-    if (!token) return;
-    setSettingsLoading(true);
-    setSettingsError("");
-    fetch("/api/settings", { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load settings");
-        return res.json();
-      })
-      .then((data: { preferredLanguage?: string; groqApiKeySet?: boolean; quickPrompts?: QuickPromptItem[] }) => {
-        if (data.preferredLanguage) setPreferredLanguage(data.preferredLanguage);
-        setGroqApiKeySet(!!data.groqApiKeySet);
-        if (Array.isArray(data.quickPrompts)) setQuickPrompts(data.quickPrompts);
-      })
-      .catch(() => setSettingsError("Could not load settings"))
-      .finally(() => setSettingsLoading(false));
-  }, []);
-
-  const saveSettings = async (updates: { preferredLanguage?: string; groqApiKey?: string | null; quickPrompts?: QuickPromptItem[] }) => {
-    const token = getStoredToken();
-    if (!token) return;
-    setSettingsSaving(true);
-    setSettingsError("");
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      if (updates.groqApiKey !== undefined) {
-        setGroqApiKey("");
-        setGroqApiKeySet(updates.groqApiKey !== null);
-      }
-    } catch {
-      setSettingsError("Failed to save settings");
-    } finally {
-      setSettingsSaving(false);
+    if (!token) {
+      router.push("/login");
+      return;
     }
-  };
+    fetch("/api/settings", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { preferredLanguage?: string; aiProvider?: string; quickPrompts?: QuickPromptRow[] } | null) => {
+        if (!data) return;
+        if (data.preferredLanguage) setPreferredLanguage(data.preferredLanguage);
+        if (data.aiProvider === "openai" || data.aiProvider === "groq") setAiProvider(data.aiProvider);
+        if (Array.isArray(data.quickPrompts) && data.quickPrompts.length > 0) {
+          setQuickPrompts(data.quickPrompts);
+        } else {
+          setQuickPrompts([]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPrefsLoading(false));
+  }, [token, router]);
 
-  const addQuickPrompt = () => {
-    const label = newPromptLabel.trim();
-    const text = newPromptText.trim();
-    if (!label || !text) return;
-    const next = [...quickPrompts, { label, text }];
-    setQuickPrompts(next);
-    setNewPromptLabel("");
-    setNewPromptText("");
-    saveSettings({ quickPrompts: next });
-  };
-
-  const removeQuickPrompt = (index: number) => {
-    const next = quickPrompts.filter((_, i) => i !== index);
-    setQuickPrompts(next);
-    saveSettings({ quickPrompts: next });
-  };
-
-  const defaultQuickPrompts: QuickPromptItem[] = [
-    { label: "Hint",       text: "Give me a small hint to get started, but don't give the answer." },
-    { label: "Complexity", text: "What is the Time and Space complexity of my approach?" },
-    { label: "Edge Cases", text: "What are some critical edge cases I should handle?" },
-    { label: "Find Bug",   text: "I suspect there's a bug in my logic. Can you help me find it?" },
-    { label: "Approach",   text: "Explain the high-level logic for this problem without code." },
-    { label: "Optimize",   text: "Is there a more optimized way to solve this?" },
-    { label: "Rate Code",  text: "Here is my approach. Rate my code on Cleanliness, Time Complexity, and Space Complexity. Be strict." },
-    { label: "Visualize",  text: "Visualize this data structure or algorithm logic with a diagram." },
-  ];
-
-  const loadDefaultPrompts = () => {
-    setQuickPrompts(defaultQuickPrompts);
-    saveSettings({ quickPrompts: defaultQuickPrompts });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    setSuccess(false);
-    if (newPassword !== confirmPassword) { setError("New passwords do not match"); return; }
-    const token = getStoredToken();
-    if (!token) { router.push("/login"); return; }
-    setLoading(true);
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return;
+    }
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordError("");
+    setPasswordSuccess(false);
     try {
       const res = await fetch("/api/auth/password", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update password");
-      setSuccess(true);
-      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setPasswordSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setPasswordError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      setLoading(false);
+      setPasswordLoading(false);
     }
   };
 
-  const strengthScore = (() => {
-    if (!newPassword) return 0;
-    let s = 0;
-    if (newPassword.length >= 6)  s++;
-    if (newPassword.length >= 10) s++;
-    if (/[A-Z]/.test(newPassword)) s++;
-    if (/[0-9]/.test(newPassword)) s++;
-    if (/[^A-Za-z0-9]/.test(newPassword)) s++;
-    return s;
-  })();
+  const savePrefs = async (updates: {
+    preferredLanguage?: string;
+    aiProvider?: "groq" | "openai";
+    groqApiKey?: string | null;
+    openaiApiKey?: string | null;
+    quickPrompts?: QuickPromptRow[];
+  }) => {
+    if (!token) return;
+    setPrefsSaving(true);
+    setPrefsSuccess(false);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      setPrefsSuccess(true);
+      setTimeout(() => setPrefsSuccess(false), 2000);
+    } catch {
+      // silent
+    } finally {
+      setPrefsSaving(false);
+    }
+  };
 
-  const strengthLabel = ["", "Weak", "Fair", "Good", "Strong", "Great"][strengthScore] || "";
-  const strengthColor = ["", "bg-rose-500", "bg-amber-500", "bg-yellow-400", "bg-emerald-400", "bg-emerald-400"][strengthScore] || "";
-  const strengthText  = ["", "text-rose-400", "text-amber-400", "text-yellow-400", "text-emerald-400", "text-emerald-400"][strengthScore] || "";
+  const handleLanguageChange = (val: string) => {
+    setPreferredLanguage(val);
+    savePrefs({ preferredLanguage: val });
+  };
+
+  const handleAiProviderChange = (val: "groq" | "openai") => {
+    setAiProvider(val);
+    savePrefs({ aiProvider: val });
+  };
+
+  const handleSaveApiKey = () => {
+    if (!apiKey.trim()) return;
+    savePrefs({
+      [aiProvider === "groq" ? "groqApiKey" : "openaiApiKey"]: apiKey.trim(),
+    });
+    setApiKey("");
+  };
+
+  const handleLoadDefaultPrompts = () => {
+    setQuickPrompts([...DEFAULT_QUICK_PROMPTS]);
+    savePrefs({ quickPrompts: DEFAULT_QUICK_PROMPTS });
+  };
+
+  const handleAddPrompt = () => {
+    const next = [...quickPrompts, { label: "", text: "" }];
+    setQuickPrompts(next);
+    savePrefs({ quickPrompts: next });
+  };
+
+  const handleRemovePrompt = (index: number) => {
+    const next = quickPrompts.filter((_, i) => i !== index);
+    setQuickPrompts(next);
+    savePrefs({ quickPrompts: next });
+  };
+
+  const handlePromptChange = (index: number, field: "label" | "text", value: string) => {
+    const next = quickPrompts.map((p, i) =>
+      i === index ? { ...p, [field]: value } : p
+    );
+    setQuickPrompts(next);
+  };
+
+  const handleSaveQuickPrompts = () => {
+    savePrefs({ quickPrompts });
+  };
+
+  const inputClass =
+    "w-full rounded-lg px-4 py-2.5 text-sm border outline-none transition-all focus:ring-2 focus:ring-offset-0 focus:ring-[var(--green)]";
+  const inputStyle = {
+    backgroundColor: "var(--surface)",
+    borderColor: "var(--border)",
+    color: "var(--text)",
+  };
+  const labelClass = "block text-xs font-medium uppercase tracking-wider mb-1.5";
+  const labelStyle = { color: "var(--muted)" };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      {/* Ambient */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/3 w-[500px] h-[400px] bg-violet-600/4 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative max-w-2xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
-
-        {/* Back */}
+    <div className="min-h-screen" style={{ backgroundColor: "var(--bg)" }}>
+      <div className="max-w-xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-violet-400 mb-8 transition-colors"
+          className="inline-flex items-center gap-2 text-sm mb-8 transition-colors hover:opacity-90"
+          style={{ color: "var(--text-2)" }}
         >
-          <ArrowLeft size={14} /> Dashboard
+          <ArrowLeft size={14} />
+          Back to Dashboard
         </Link>
 
-        {/* Page header */}
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-white tracking-tight">Settings</h1>
-          <p className="mt-1.5 text-slate-500 text-base">Manage your account preferences.</p>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text)" }}>
+          Settings
+        </h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+          Manage your account and preferences. Changes sync with the extension.
+        </p>
 
-        {settingsError && (
-          <div className="mb-6 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">
-            {settingsError}
+        {/* ─── Preferred Language & AI (same as extension) ─────────────────── */}
+        <section className="mt-10">
+          <div className="flex items-center gap-2 mb-4">
+            <Globe size={20} style={{ color: "var(--green)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              Preferred language
+            </h2>
           </div>
-        )}
-
-        {/* Groq API Key */}
-        <section className="mb-10">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center">
-              <Key size={14} className="text-violet-400" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-200">Groq API Key (Optional)</h2>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-6">
-            {settingsLoading ? (
-              <div className="flex items-center gap-2 text-slate-500 text-sm">
-                <Loader2 size={14} className="animate-spin" /> Loading…
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <input
-                  type="password"
-                  value={groqApiKey}
-                  onChange={(e) => setGroqApiKey(e.target.value)}
-                  placeholder={groqApiKeySet ? "Enter new key to replace, or leave blank" : "gsk_..."}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500/60 outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={settingsSaving}
-                  onClick={() => saveSettings({ groqApiKey: groqApiKey.trim() || null })}
-                  className="py-2 px-4 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
-                >
-                  {settingsSaving ? <Loader2 size={14} className="animate-spin inline" /> : "Save"}
-                </button>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Preferred Language */}
-        <section className="mb-10">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center">
-              <Globe size={14} className="text-violet-400" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-200">Preferred Language</h2>
-          </div>
-          <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-6">
+          <div
+            className="p-6 rounded-xl border"
+            style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+          >
+            <label className={labelClass} style={labelStyle}>
+              Code language for hints and snippets
+            </label>
             <select
               value={preferredLanguage}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPreferredLanguage(v);
-                saveSettings({ preferredLanguage: v });
-              }}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 focus:border-violet-500/60 outline-none"
+              onChange={(e) => handleLanguageChange(e.target.value)}
+              disabled={prefsLoading}
+              className={inputClass}
+              style={inputStyle}
             >
-              <option value="cpp">C++</option>
-              <option value="java">Java</option>
-              <option value="python">Python</option>
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="go">Go</option>
-              <option value="rust">Rust</option>
+              {LANGUAGES.map(({ value, label }) => (
+                <option key={value} value={value} style={inputStyle}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
         </section>
 
-        {/* Quick Prompts */}
-        <section className="mb-10">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center">
-              <MessageSquarePlus size={14} className="text-violet-400" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-200">Quick Prompts</h2>
+        {/* ─── AI Provider & API Key ────────────────────────────────────────── */}
+        <section className="mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Key size={20} style={{ color: "var(--green)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              AI provider & API key
+            </h2>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-6 space-y-4">
-            <p className="text-sm text-slate-500">Manage the quick prompt buttons shown in the extension. These sync with the extension when you’re logged in.</p>
-            <button
-              type="button"
-              onClick={loadDefaultPrompts}
-              disabled={settingsSaving}
-              className="text-sm text-violet-400 hover:text-violet-300 font-medium disabled:opacity-50"
-            >
-              Load default prompts
-            </button>
-            <ul className="space-y-2">
-              {quickPrompts.map((p, i) => (
-                <li key={i} className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5">
-                  <span className="font-medium text-slate-200 text-sm shrink-0">{p.label}</span>
-                  <span className="text-slate-500 text-xs truncate flex-1">{p.text}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeQuickPrompt(i)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
-                    title="Remove"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                value={newPromptLabel}
-                onChange={(e) => setNewPromptLabel(e.target.value)}
-                placeholder="Label (e.g. Hint)"
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500/60 outline-none"
-              />
-              <input
-                type="text"
-                value={newPromptText}
-                onChange={(e) => setNewPromptText(e.target.value)}
-                placeholder="Prompt text"
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500/60 outline-none"
-              />
-              <button
-                type="button"
-                onClick={addQuickPrompt}
-                disabled={!newPromptLabel.trim() || !newPromptText.trim()}
-                className="inline-flex items-center justify-center gap-1.5 py-2 px-4 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+          <div
+            className="p-6 rounded-xl border space-y-4"
+            style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+          >
+            <div>
+              <label className={labelClass} style={labelStyle}>
+                Provider
+              </label>
+              <select
+                value={aiProvider}
+                onChange={(e) => handleAiProviderChange(e.target.value as "groq" | "openai")}
+                disabled={prefsLoading}
+                className={inputClass}
+                style={inputStyle}
               >
-                <Plus size={14} /> Add
-              </button>
+                <option value="groq" style={inputStyle}>Groq</option>
+                <option value="openai" style={inputStyle}>OpenAI</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass} style={labelStyle}>
+                {aiProvider === "groq" ? "Groq" : "OpenAI"} API key (optional)
+              </label>
+              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>
+                Enter a new key and click Save. Leave blank to use community pool. Your existing key is not shown.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={aiProvider === "groq" ? "gsk_..." : "sk-..."}
+                  className={inputClass + " flex-1"}
+                  style={inputStyle}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveApiKey}
+                  disabled={prefsSaving || !apiKey.trim()}
+                  className="px-4 py-2.5 rounded-lg text-sm font-bold border shrink-0 disabled:opacity-50"
+                  style={{
+                    backgroundColor: "var(--green)",
+                    color: "#000000",
+                    borderColor: "var(--green)",
+                  }}
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Password section */}
-        <section>
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center">
-              <Lock size={14} className="text-violet-400" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-200">Change Password</h2>
+        {/* ─── Quick prompts (extension quick prompts) ──────────────────────── */}
+        <section className="mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <MessageSquare size={20} style={{ color: "var(--green)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              Quick prompts
+            </h2>
           </div>
-
-          <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-6">
-            {success ? (
-              <div className="flex flex-col items-center text-center py-6 gap-3">
-                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                  <CheckCircle size={24} className="text-emerald-400" />
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-200">Password updated</p>
-                  <p className="text-sm text-slate-500 mt-1">Use your new password next time you sign in.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSuccess(false)}
-                  className="mt-2 text-xs text-slate-500 hover:text-violet-400 transition-colors"
+          <div
+            className="p-6 rounded-xl border"
+            style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+          >
+            <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
+              One-click prompts in the extension chat. Same list on website and extension.
+            </p>
+            <button
+              type="button"
+              onClick={handleLoadDefaultPrompts}
+              disabled={prefsLoading}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border mb-4 transition-colors"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-2)",
+              }}
+            >
+              <RotateCcw size={12} />
+              Load default prompts
+            </button>
+            <div className="space-y-3">
+              {quickPrompts.map((p, i) => (
+                <div
+                  key={i}
+                  className="flex gap-2 items-start p-3 rounded-lg border"
+                  style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}
                 >
-                  Change again
-                </button>
-              </div>
+                  <input
+                    value={p.label}
+                    onChange={(e) => handlePromptChange(i, "label", e.target.value)}
+                    onBlur={handleSaveQuickPrompts}
+                    placeholder="Label"
+                    className="flex-1 min-w-0 rounded px-2.5 py-1.5 text-sm border"
+                    style={{ ...inputStyle, maxWidth: "100px" }}
+                  />
+                  <input
+                    value={p.text}
+                    onChange={(e) => handlePromptChange(i, "text", e.target.value)}
+                    onBlur={handleSaveQuickPrompts}
+                    placeholder="Prompt text"
+                    className="flex-2 min-w-0 rounded px-2.5 py-1.5 text-sm border"
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePrompt(i)}
+                    className="p-1.5 rounded border shrink-0 transition-colors"
+                    style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+                    title="Remove"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleAddPrompt}
+              disabled={prefsLoading}
+              className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-2)",
+              }}
+            >
+              <Plus size={12} />
+              Add prompt
+            </button>
+            {prefsSuccess && (
+              <p className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--green)" }}>
+                <CheckCircle size={14} />
+                Saved. Extension will use these on next load.
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* ─── Change password ───────────────────────────────────────────────── */}
+        <section className="mt-10">
+          <div className="flex items-center gap-2 mb-4">
+            <Lock size={20} style={{ color: "var(--green)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              Change password
+            </h2>
+          </div>
+          <div
+            className="p-6 rounded-xl border"
+            style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+          >
+            {passwordSuccess ? (
+              <p className="flex items-center gap-2" style={{ color: "var(--green)" }}>
+                <CheckCircle size={18} />
+                Password updated. Use your new password next time you sign in.
+              </p>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {error && (
-                  <div className="px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 font-medium">
-                    {error}
-                  </div>
+              <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                {passwordError && (
+                  <p
+                    className="text-sm rounded-lg px-3 py-2 border"
+                    style={{
+                      color: "var(--red)",
+                      backgroundColor: "var(--red-dim)",
+                      borderColor: "rgba(239, 68, 68, 0.3)",
+                    }}
+                  >
+                    {passwordError}
+                  </p>
                 )}
-
-                {/* Current password */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Current Password
+                  <label className={labelClass} style={labelStyle}>
+                    Current password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600 w-3.5 h-3.5" />
-                    <input
-                      type={showCurrent ? "text" : "password"}
-                      value={currentPassword}
-                      onChange={e => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password"
-                      required
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-10 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500/60 focus:bg-slate-900/80 outline-none transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrent(p => !p)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400 transition-colors"
-                    >
-                      {showCurrent ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    required
+                    className={inputClass}
+                    style={inputStyle}
+                  />
                 </div>
-
-                {/* New password */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    New Password
+                  <label className={labelClass} style={labelStyle}>
+                    New password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600 w-3.5 h-3.5" />
-                    <input
-                      type={showNew ? "text" : "password"}
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      placeholder="At least 6 characters"
-                      required
-                      minLength={6}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-10 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500/60 focus:bg-slate-900/80 outline-none transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNew(p => !p)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400 transition-colors"
-                    >
-                      {showNew ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-
-                  {/* Strength meter */}
-                  {newPassword && (
-                    <div className="mt-2.5">
-                      <div className="flex gap-1 h-1 mb-1.5">
-                        {[1,2,3,4,5].map(i => (
-                          <div
-                            key={i}
-                            className={`flex-1 rounded-full transition-all ${i <= strengthScore ? strengthColor : "bg-slate-800"}`}
-                          />
-                        ))}
-                      </div>
-                      <p className={`text-xs font-semibold ${strengthText}`}>{strengthLabel}</p>
-                    </div>
-                  )}
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    required
+                    minLength={6}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
                 </div>
-
-                {/* Confirm password */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Confirm New Password
+                  <label className={labelClass} style={labelStyle}>
+                    Confirm new password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600 w-3.5 h-3.5" />
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password"
-                      required
-                      minLength={6}
-                      className={`w-full bg-slate-950 border rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 outline-none transition-all ${
-                        confirmPassword && confirmPassword !== newPassword
-                          ? "border-rose-500/50 focus:border-rose-500"
-                          : confirmPassword && confirmPassword === newPassword
-                          ? "border-emerald-500/50 focus:border-emerald-500"
-                          : "border-slate-800 focus:border-violet-500/60"
-                      } focus:bg-slate-900/80`}
-                    />
-                    {confirmPassword && (
-                      <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
-                        {confirmPassword === newPassword
-                          ? <CheckCircle size={14} className="text-emerald-400" />
-                          : <span className="text-rose-400 text-xs font-bold">✕</span>
-                        }
-                      </div>
-                    )}
-                  </div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    required
+                    minLength={6}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
                 </div>
-
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="w-full py-3 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-violet-900/20 border border-violet-500/30 mt-2"
+                  disabled={passwordLoading}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 border"
+                  style={{
+                    backgroundColor: "var(--green)",
+                    color: "#000000",
+                    borderColor: "var(--green)",
+                  }}
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Update Password"}
+                  {passwordLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Update password"
+                  )}
                 </button>
               </form>
             )}

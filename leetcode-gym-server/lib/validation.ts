@@ -28,6 +28,8 @@ export const logPostBodySchema = z.object({
   approach: z.string().optional().nullable(),
   complexity: z.string().optional().nullable(),
   codeSnippet: z.string().optional().nullable(),
+  keyInsight: z.string().optional().nullable(),
+  mnemonic: z.string().optional().nullable(),
   timeTaken: z.number().int().min(0).optional().nullable(),
   timeLimit: z.number().int().min(0).optional().nullable(),
   metTimeLimit: z.boolean().optional().nullable(),
@@ -49,6 +51,7 @@ export const chatPostBodySchema = z.object({
     description: z.string().optional(),
   }),
   userApiKey: z.string().optional(),
+  mode: z.enum(["normal", "interview"]).optional().default("normal"),
 });
 
 export const generateNotesBodySchema = z.object({

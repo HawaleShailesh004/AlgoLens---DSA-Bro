@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, LogOut, HelpCircle, Settings, ChevronDown } from "lucide-react";
+import { LayoutDashboard, BarChart3, BookOpen, LogOut, User, Settings, ChevronDown } from "lucide-react";
 
 // ─── Auth helpers (unchanged) ─────────────────────────────────────────────────
 const WEB_TOKEN_KEY = "gymToken";
@@ -24,11 +24,12 @@ export function clearStoredAuth() {
   localStorage.removeItem(WEB_USER_KEY);
 }
 
-// ─── Nav config ───────────────────────────────────────────────────────────────
+// ─── Nav config (spec: Dashboard, Analytics, Study Plan, Settings) ──────────────
 const navLinks = [
   { href: "/dashboard",    label: "Dashboard",    icon: LayoutDashboard },
-  { href: "/how-it-works", label: "How it works", icon: HelpCircle      },
-  { href: "/settings",     label: "Settings",     icon: Settings         },
+  { href: "/analytics",    label: "Analytics",   icon: BarChart3       },
+  { href: "/study-plan",   label: "Study Plan",  icon: BookOpen        },
+  { href: "/settings",     label: "Settings",    icon: Settings       },
 ];
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
@@ -100,65 +101,64 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
   // ── Auth pages: bare shell ─────────────────────────────────────────────────
   if (!mounted || isAuthPage) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
         <main className="flex-1">{children}</main>
       </div>
     );
   }
 
-  // ── App shell ──────────────────────────────────────────────────────────────
+  // ── App shell (Grindset: green accent, no blur) ─────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
       <header
-        className={`sticky top-0 z-50 transition-all duration-200 ${
-          scrolled
-            ? "bg-slate-950/90 backdrop-blur-xl border-b border-slate-800/80 shadow-xl shadow-slate-950/50"
-            : "bg-slate-950/60 backdrop-blur-md border-b border-slate-800/40"
-        }`}
+        className="sticky top-0 z-50 border-b"
+        style={{
+          height: "64px",
+          padding: "16px 24px",
+          backgroundColor: "var(--surface)",
+          borderColor: "var(--border)",
+        }}
       >
-        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14">
-
-            {/* Logo */}
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-2.5 group shrink-0"
-            >
-              <div className="w-8 h-8 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center group-hover:bg-violet-500/22 group-hover:border-violet-500/40 transition-all">
-                <span className="text-violet-300 font-black text-sm leading-none">λ</span>
+        <div className="w-full max-w-5xl mx-auto h-full flex items-center justify-between">
+            <Link href="/dashboard" className="flex items-center gap-2.5 group shrink-0">
+              <div
+                className="w-8 h-8 rounded flex items-center justify-center border transition-all group-hover:opacity-90"
+                style={{ backgroundColor: "var(--green-dim)", borderColor: "var(--border-green)" }}
+              >
+                <span className="font-black text-sm leading-none" style={{ color: "var(--green)" }}>λ</span>
               </div>
-              <span className="font-bold text-base text-slate-100 tracking-tight group-hover:text-white transition-colors">
-                AlgoLens
+              <span className="font-bold text-xl tracking-tight transition-colors" style={{ color: "var(--text)" }}>
+                Grindset
               </span>
             </Link>
 
-            {/* Centre nav */}
-            <nav className="hidden sm:flex items-center gap-0.5 bg-slate-900/50 border border-slate-800/60 rounded-xl px-1.5 py-1.5">
+            <nav
+              className="hidden sm:flex items-center gap-0.5 rounded px-1.5 py-1.5 border"
+              style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+            >
               {navLinks.map(({ href, label, icon: Icon }) => {
                 const active = pathname === href;
                 return (
                   <Link
                     key={href}
                     href={href}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                      active
-                        ? "bg-violet-600/90 text-white shadow-sm shadow-violet-900/40"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded text-[13px] font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-0 focus:ring-offset-[var(--surface)] ${
+                      active ? "text-black" : ""
                     }`}
+                    style={
+                      active
+                        ? { backgroundColor: "var(--green)", color: "#000000" }
+                        : { color: "var(--text-2)" }
+                    }
                   >
-                    <Icon size={14} className={active ? "text-violet-200" : ""} />
+                    <Icon size={14} />
                     {label}
                   </Link>
                 );
               })}
             </nav>
 
-            {/* Right side: user + logout */}
             <div className="flex items-center gap-2">
-
-              {/* Mobile nav (icon-only pills) */}
               <nav className="sm:hidden flex items-center gap-0.5">
                 {navLinks.map(({ href, label, icon: Icon }) => {
                   const active = pathname === href;
@@ -167,11 +167,12 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                       key={href}
                       href={href}
                       title={label}
-                      className={`p-2 rounded-lg transition-all ${
+                      className={`p-2 rounded transition-all ${active ? "text-black" : ""}`}
+                      style={
                         active
-                          ? "bg-violet-600/80 text-white"
-                          : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-                      }`}
+                          ? { backgroundColor: "var(--green)", color: "#000000" }
+                          : { color: "var(--muted)" }
+                      }
                     >
                       <Icon size={16} />
                     </Link>
@@ -179,40 +180,54 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                 })}
               </nav>
 
-              {/* User email / logout menu */}
               {user && (
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={e => { e.stopPropagation(); setUserMenuOpen(p => !p); }}
-                    className="flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded-xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-800/60 transition-all text-xs text-slate-400 hover:text-slate-200"
+                    onClick={(e) => { e.stopPropagation(); setUserMenuOpen((p) => !p); }}
+                    className="flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded border transition-all text-xs"
+                    style={{
+                      borderColor: "var(--border)",
+                      backgroundColor: "var(--card)",
+                      color: "var(--text-2)",
+                    }}
                   >
-                    {/* Avatar dot */}
-                    <div className="w-5 h-5 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-bold text-violet-300 uppercase leading-none">
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border"
+                      style={{ backgroundColor: "var(--green-dim)", borderColor: "var(--border-green)" }}
+                    >
+                      <span className="text-xs font-bold uppercase leading-none" style={{ color: "var(--green)" }}>
                         {user.email[0]}
                       </span>
                     </div>
-                    <span className="hidden md:block max-w-[120px] truncate font-medium">
-                      {user.email}
-                    </span>
+                    <span className="hidden md:block max-w-[120px] truncate font-medium">{user.email}</span>
                     <ChevronDown size={12} className={`transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
                   </button>
 
-                  {/* Dropdown */}
                   {userMenuOpen && (
                     <div
-                      className="absolute right-0 top-full mt-1.5 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl shadow-slate-950/80 overflow-hidden py-1.5"
-                      onClick={e => e.stopPropagation()}
+                      className="absolute right-0 top-full mt-1.5 w-48 rounded overflow-hidden py-1.5 border"
+                      style={{ backgroundColor: "var(--surface)", borderColor: "var(--border)", boxShadow: "var(--shadow-lg)" }}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="px-4 py-2.5 border-b border-slate-800/80">
-                        <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Signed in as</p>
-                        <p className="text-xs text-slate-300 font-medium mt-0.5 truncate">{user.email}</p>
+                      <div className="px-4 py-2.5 border-b" style={{ borderColor: "var(--border)" }}>
+                        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>Signed in as</p>
+                        <p className="text-xs font-medium mt-0.5 truncate" style={{ color: "var(--text-2)" }}>{user.email}</p>
                       </div>
+                      <Link
+                        href="/dashboard"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-xs transition-colors hover:bg-[var(--card)]"
+                        style={{ color: "var(--text-2)" }}
+                      >
+                        <User size={13} />
+                        Profile
+                      </Link>
                       <Link
                         href="/settings"
                         onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors"
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-xs transition-colors hover:bg-[var(--card)]"
+                        style={{ color: "var(--text-2)" }}
                       >
                         <Settings size={13} />
                         Settings
@@ -220,7 +235,8 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                       <button
                         type="button"
                         onClick={handleLogout}
-                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-xs text-slate-400 hover:text-rose-400 hover:bg-rose-500/8 transition-colors"
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-xs transition-colors hover:bg-[var(--red-dim)] hover:text-[var(--red)]"
+                        style={{ color: "var(--text-2)" }}
                       >
                         <LogOut size={13} />
                         Sign out
@@ -230,62 +246,39 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                 </div>
               )}
             </div>
-          </div>
         </div>
       </header>
 
-      {/* ── Page content ───────────────────────────────────────────────────── */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1">
+        <div className="w-full max-w-5xl mx-auto px-6 py-6">
+          {children}
+        </div>
+      </main>
 
-      {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800/60 bg-slate-950/80 mt-auto">
-        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <footer className="border-t mt-auto" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+        <div className="w-full max-w-5xl mx-auto px-6 py-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-
-            {/* Brand */}
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-violet-500/12 border border-violet-500/20 flex items-center justify-center">
-                <span className="text-violet-400 font-black text-xs">λ</span>
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center border"
+                style={{ backgroundColor: "var(--green-dim)", borderColor: "var(--border-green)" }}
+              >
+                <span className="font-black text-xs" style={{ color: "var(--green)" }}>λ</span>
               </div>
               <div>
-                <p className="font-bold text-sm text-slate-300 leading-none">AlgoLens</p>
-                <p className="text-xs text-slate-600 mt-0.5">Your DSA revision companion</p>
+                <p className="font-bold text-sm leading-none" style={{ color: "var(--text-2)" }}>Grindset</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>Your DSA revision companion</p>
               </div>
             </div>
-
-            {/* Links */}
-            <div className="flex items-center gap-6 text-sm text-slate-500">
-              <Link
-                href="/how-it-works"
-                className="hover:text-violet-400 transition-colors"
-              >
-                How it works
-              </Link>
-              <Link
-                href="/settings"
-                className="hover:text-violet-400 transition-colors"
-              >
-                Settings
-              </Link>
-              <a
-                href="https://leetcode.com"
-                target="_blank"
-                rel="noreferrer"
-                className="hover:text-violet-400 transition-colors"
-              >
-                LeetCode ↗
-              </a>
+            <div className="flex items-center gap-6 text-sm" style={{ color: "var(--muted)" }}>
+              <Link href="/how-it-works" className="transition-colors hover:text-[var(--green)]">How it works</Link>
+              <Link href="/settings" className="transition-colors hover:text-[var(--green)]">Settings</Link>
+              <a href="https://leetcode.com" target="_blank" rel="noreferrer" className="transition-colors hover:text-[var(--green)]">LeetCode ↗</a>
             </div>
           </div>
-
-          {/* Divider + tagline */}
-          <div className="mt-6 pt-5 border-t border-slate-800/40 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-2">
-            <p className="text-xs text-slate-600">
-              Log workouts on LeetCode · Revise here · Ace the interview
-            </p>
-            <p className="text-xs text-slate-700">
-              © {new Date().getFullYear()} AlgoLens
-            </p>
+          <div className="mt-6 pt-5 border-t flex flex-col sm:flex-row items-center justify-between gap-2" style={{ borderColor: "var(--border)" }}>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>Log workouts on LeetCode · Revise here · Ace the interview</p>
+            <p className="text-xs" style={{ color: "var(--muted-2)" }}>© {new Date().getFullYear()} Grindset</p>
           </div>
         </div>
       </footer>

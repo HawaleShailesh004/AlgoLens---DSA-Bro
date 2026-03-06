@@ -3,11 +3,32 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { chatPostBodySchema } from "@/lib/validation";
+import { prisma } from "@/lib/prisma";
+import { getChatSystemPromptNormal, getChatSystemPromptInterview } from "@/lib/prompts";
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+// Initialize Redis only if credentials are available (trim to avoid .env quotes/spaces)
+function getRedisClient(): Redis | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim()?.replace(/^["']|["']$/g, "");
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim()?.replace(/^["']|["']$/g, "");
+  if (!url || !token) return null;
+  try {
+    return new Redis({ url, token });
+  } catch {
+    return null;
+  }
+}
+
+let redis: Redis | null = getRedisClient();
+
+// One-time startup ping: log if Redis is reachable (empty Redis is fine; we create keys on first incr)
+if (redis) {
+  redis
+    .ping()
+    .then(() => console.log("[Redis] Connected. Rate limiting enabled."))
+    .catch((err: unknown) =>
+      console.warn("[Redis] Startup ping failed, rate limits will be skipped until connection works:", (err as Error)?.message ?? err)
+    );
+}
 
 export async function POST(req: Request) {
   try {
@@ -21,110 +42,112 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Validation failed", details: parsed.error.flatten() },
-        { status: 400 }
+        { status: 400 },
       );
     }
-    const { messages, problemContext, userApiKey } = parsed.data;
+    const {
+      messages,
+      problemContext,
+      userApiKey,
+      mode = "normal",
+    } = parsed.data;
+    const isInterviewMode = mode === "interview";
 
     // --- 1. KEY SELECTION & RATE LIMITING ---
+    const userId = await getUserIdFromRequest(req);
     let apiKey = userApiKey;
-    const baseUrl = process.env.GROQ_BASE_URL;
+    let provider: "groq" | "openai" = "groq";
+    let baseUrl: string | undefined;
 
-    if (!apiKey) {
-      apiKey = process.env.GROQ_API_KEY;
-      const userId = await getUserIdFromRequest(req);
-      const usageKey = userId ? `usage:user:${userId}` : `usage:ip:${req.headers.get("x-forwarded-for") || "unknown"}`;
+    // Get user's provider preference and API keys
+    if (userId) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { aiProvider: true, groqApiKey: true, openaiApiKey: true },
+        });
 
-      const currentUsage = (await redis.get<number>(usageKey)) || 0;
-      if (currentUsage >= 10) {
-        return NextResponse.json(
-          {
-            error:
-              "Daily limit reached (10/10). Add your own Free Key in settings!",
-            isQuotaError: true,
-          },
-          { status: 429 }
+        if (user) {
+          provider = (user.aiProvider === "openai" ? "openai" : "groq") as
+            | "groq"
+            | "openai";
+
+          // Use user's API key if available
+          if (!apiKey) {
+            apiKey =
+              provider === "openai"
+                ? user.openaiApiKey || undefined
+                : user.groqApiKey || undefined;
+          }
+        }
+      } catch (dbError: any) {
+        // Database connection failed - log warning but continue with defaults
+        console.warn(
+          "Database connection failed, using default settings:",
+          dbError?.message || dbError,
         );
+        // Continue without user preferences - will use default provider and shared API key
       }
-      await redis.incr(usageKey);
-      if (currentUsage === 0) await redis.expire(usageKey, 86400);
     }
 
-    // --- 2. THE GYM BRO SYSTEM PROMPT ---
+    // Set base URL based on provider
+    if (provider === "openai") {
+      baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    } else {
+      baseUrl = process.env.GROQ_BASE_URL;
+    }
 
-    const SYSTEM_PROMPT = `
-    You are a smart, witty, "tough love" coding friend.You are hanging out with the user, solving a LeetCode problem together.
-    
-    THE MISSION:
-    Make the user build mental muscle. You are the spotter, not the lifter. 
-    You CANNOT just give them the answer or the algorithm immediately.
-    
-    CONTEXT: (CURRENT PROBLEM)
-    - Problem: ${problemContext.title} (${problemContext.difficulty})
-    - Description: ${problemContext?.description?.slice(0, 1500)}...
+    // If no user API key, use shared key and apply rate limiting
+    if (!apiKey) {
+      apiKey =
+        provider === "openai"
+          ? process.env.OPENAI_API_KEY
+          : process.env.GROQ_API_KEY;
 
-   THE "GYM BRO" PROTOCOL:
-    1. **Natural Chat:** If they say "hi", just say "sup" or "yo". Be human. Don't robotically ask "How can I help?".
-    2. **The "Stuck" Trap:** If they say "I'm stuck" or "Help":
-       - 🛑 STOP. Do NOT name the algorithm (e.g., do not say "Use Sliding Window").
-       - ✅ DO ASK: "What have you tried so far?" or "What's the brute force approach?"
-       - IF they ask again & again for Solution or code: provide it, max times you can push him is 3, dont push again strictly.
-       - Force them to show their work before you give a hint.
-   
-       - Roast them gently: "Bro, I'm not writing it for you. 🏋️‍♂️ Type out the loop yourself."
-    4. **Tone:** Short (1-2 sentences). Slang is good (bro, dude, lol, wild).
+      // Rate limiting when using shared API key (requires Redis) — commented out for now
+      // if (redis) {
+      //   try {
+      //     const usageKey = userId
+      //       ? `usage:user:${userId}`
+      //       : `usage:ip:${req.headers.get("x-forwarded-for") || "unknown"}`;
 
-    CRITICAL VISUALIZATION RULE:
-    If the user asks to "visualize", "draw", or "show" a structure (like a Tree, Linked List, Graph, or DP Table), you MUST use a markdown code block with the language 'mermaid'.
+      //     const currentUsage = (await redis.get<number>(usageKey)) || 0;
+      //     const limit = userId ? 50 : 10; // Higher limit for logged-in users
 
-    1. Use 'mermaid' code blocks.
-2. ALWAYS use quotes for node labels that contain brackets [], parenthesis (), or special characters.
-   - ❌ BAD: A[[]] --> B[1,2]
-   - ✅ GOOD: A["[]"] --> B["[1, 2]"]
-   3. 🛑 NO NULL BOXES:
-   - Do NOT create nodes for 'null', 'nil', or 'None'.
-   - If a node has no children, just stop drawing.
-   - ❌ BAD: A["1"] --> B["null"]
-   - ✅ GOOD: A["1"] (Just don't draw the arrow)
-4. Keep diagrams simple and top-down (graph TD).
+      //     if (currentUsage >= limit) {
+      //       return NextResponse.json(
+      //         {
+      //           error: `Daily limit reached (${limit}/${limit}). Add your own API key in settings!`,
+      //           isQuotaError: true,
+      //         },
+      //         { status: 429 },
+      //       );
+      //     }
+      //     await redis.incr(usageKey);
+      //     if (currentUsage === 0) await redis.expire(usageKey, 86400);
+      //   } catch (redisError) {
+      //     console.warn(
+      //       "Rate limit check failed, allowing request:",
+      //       (redisError as Error)?.message ?? redisError,
+      //     );
+      //   }
+      // }
+    }
 
-    Examples:
+    // --- 2. SYSTEM PROMPT (Normal vs Interview Mode) ---
 
-1. For a Binary Tree:
-\`\`\`mermaid
-graph TD;
-    A((1))-->B((2));
-    A-->C((3));
-    B-->D((4));
-    B-->E((5));
-\`\`\`
+    const SYSTEM_PROMPT = isInterviewMode
+      ? getChatSystemPromptInterview(problemContext)
+      : getChatSystemPromptNormal(problemContext);
 
-2. For a Linked List:
-\`\`\`mermaid
-graph LR;
-    A[Head] --> B(2);
-    B --> C(3);
-    C --> D(Null);
-\`\`\`
+    // --- 3. CALL AI PROVIDER ---
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "No API key available" },
+        { status: 400 },
+      );
+    }
 
-3. For a Flowchart:
-\`\`\`mermaid
-graph TD;
-    Start --> Check{Is x < 0?};
-    Check -- Yes --> End;
-    Check -- No --> Loop;
-\`\`\`
-
-Never explain the mermaid syntax, just output the code block.
-
-    SCENARIO HANDLING:
-    - User: "I don't know what to do."
-    - You: "Don't overthink it. If you had to solve this on paper with a small example, what would you do manually?" (See? No spoilers).
-
-    Start the conversation now. React naturally.
-    `;
-
-    // --- 3. CALL GROQ ---
     const client = new OpenAI({
       apiKey: apiKey,
       baseURL: baseUrl,
@@ -170,7 +193,7 @@ Never explain the mermaid syntax, just output the code block.
     if (error?.status === 401) {
       return NextResponse.json(
         { error: "Invalid API Key provided." },
-        { status: 401 }
+        { status: 401 },
       );
     }
     return NextResponse.json({ error: "Server error" }, { status: 500 });

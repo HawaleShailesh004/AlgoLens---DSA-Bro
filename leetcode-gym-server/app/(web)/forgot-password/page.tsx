@@ -33,34 +33,32 @@ export default function ForgotPasswordPage() {
 
   if (resetLink) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-950">
+      <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ backgroundColor: "var(--bg)" }}>
         <div className="w-full max-w-lg">
           <div className="mb-6 flex justify-center">
-            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-500" />
+            <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--green-dim)" }}>
+              <CheckCircle className="w-6 h-6" style={{ color: "var(--green)" }} />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-zinc-100 text-center">
+          <h1 className="text-2xl font-bold text-center" style={{ color: "var(--text)" }}>
             Check your reset link
           </h1>
-          <p className="text-base text-zinc-500 text-center mt-2">
+          <p className="text-base text-center mt-2" style={{ color: "var(--muted)" }}>
             Use the link below to set a new password. It expires in 1 hour.
           </p>
-          <div className="mt-6 p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-            <p className="text-xs text-zinc-500 mb-2">Reset link:</p>
-            <a
-              href={resetLink}
-              className="text-base text-orange-400 hover:text-orange-300 break-all"
-            >
+          <div className="mt-6 p-4 rounded-xl border" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
+            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Reset link:</p>
+            <a href={resetLink} className="text-base break-all transition-colors hover:opacity-90" style={{ color: "var(--green)" }}>
               {resetLink}
             </a>
-            <p className="text-xs text-zinc-500 mt-3">
+            <p className="text-xs mt-3" style={{ color: "var(--muted)" }}>
               Copy the link and open it in this or another browser to set your new password.
             </p>
           </div>
           <Link
             href="/login"
-            className="mt-6 flex items-center justify-center gap-2 text-base text-zinc-500 hover:text-orange-400"
+            className="mt-6 flex items-center justify-center gap-2 text-base transition-colors hover:opacity-90"
+            style={{ color: "var(--green)" }}
           >
             <ArrowLeft size={14} />
             Back to sign in
@@ -71,42 +69,45 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-950">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ backgroundColor: "var(--bg)" }}>
       <div className="w-full max-w-md">
         <Link
           href="/login"
-          className="inline-flex items-center gap-2 text-base text-zinc-500 hover:text-orange-400 mb-6"
+          className="inline-flex items-center gap-2 text-base mb-6 transition-colors hover:opacity-90"
+          style={{ color: "var(--green)" }}
         >
           <ArrowLeft size={14} />
           Back to sign in
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+        <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text)" }}>
           Forgot password?
         </h1>
-        <p className="text-base text-zinc-500 mt-1">
+        <p className="text-base mt-1" style={{ color: "var(--muted)" }}>
           Enter your email and we&apos;ll give you a link to set a new password.
         </p>
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           {error && (
-            <div className="p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-xs text-red-200">
+            <div className="p-3 rounded-lg text-xs border" style={{ backgroundColor: "var(--red-dim)", borderColor: "rgba(239,68,68,0.3)", color: "var(--red)" }}>
               {error}
             </div>
           )}
           <div className="relative">
-            <Mail className="absolute left-3 top-2.5 text-zinc-500 w-4 h-4" />
+            <Mail className="absolute left-3 top-2.5 w-4 h-4" style={{ color: "var(--muted)" }} />
             <input
               type="email"
               placeholder="Email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 pl-9 pr-4 text-base text-zinc-100 placeholder-zinc-500 focus:border-orange-500 outline-none"
+              className="w-full rounded-xl py-2.5 pl-9 pr-4 text-base border outline-none"
+              style={{ backgroundColor: "var(--surface)", borderColor: "var(--border)", color: "var(--text)" }}
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-base flex items-center justify-center gap-2"
+            className="w-full font-bold py-2.5 rounded-xl text-base flex items-center justify-center gap-2 border disabled:opacity-50"
+            style={{ backgroundColor: "var(--green)", color: "#000000", borderColor: "var(--green)" }}
           >
             {loading ? <Loader2 className="animate-spin" size={16} /> : "Get reset link"}
           </button>

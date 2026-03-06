@@ -1,454 +1,474 @@
-// dashboard.jsx — AlgoLens Dashboard (Redesigned)
-// Drop-in replacement for your /dashboard page
-// Uses same data types and API calls — only UI changed
-
 "use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  Loader2, Trophy, Clock, Search, Filter, AlertCircle,
-  Code2, Target, ExternalLink, HelpCircle, ChevronRight,
-  Flame, BarChart3, TrendingUp, Zap,
-} from "lucide-react";
+import { Loader2, ExternalLink, AlertCircle, Search, CheckCircle2 } from "lucide-react";
 import { getStoredToken } from "../layout";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type LogItem = {
-  id: string; slug: string; title: string; difficulty: string;
-  confidence: number; nextReviewAt: string; category: string | null;
-  approach: string | null; complexity: string | null; reviewedAt: string;
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const difficultyConfig: Record<string, { label: string; cls: string; dot: string }> = {
-  Easy:   { label: "Easy",   cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20", dot: "bg-emerald-400" },
-  Medium: { label: "Medium", cls: "text-amber-400  bg-amber-400/10  border-amber-400/20",  dot: "bg-amber-400"  },
-  Hard:   { label: "Hard",   cls: "text-rose-400   bg-rose-400/10   border-rose-400/20",   dot: "bg-rose-400"   },
-};
-
-function getDueInfo(dateStr: string, now: number) {
-  const diff = new Date(dateStr).getTime() - now;
-  const days = Math.ceil(diff / 86_400_000);
-  if (days < 0)  return { label: "Overdue", cls: "text-rose-400",  bg: "bg-rose-400/8  border-rose-400/20"  };
-  if (days === 0) return { label: "Today",  cls: "text-amber-400", bg: "bg-amber-400/8 border-amber-400/20" };
-  return { label: `${days}d`, cls: "text-slate-400", bg: "bg-slate-800/40 border-slate-700/40" };
+interface LogItem {
+  id: string;
+  slug: string;
+  title: string;
+  category: string | null;
+  confidence: number;
+  nextReviewAt: string;
+  reviewedAt: string | null;
+  difficulty: string | null;
 }
 
-function ConfidenceBar({ level }: { level: number }) {
-  const colors = ["bg-rose-500", "bg-amber-500", "bg-emerald-500"];
-  return (
-    <div className="flex items-center gap-1" title={`Confidence ${level}/3`}>
-      {[1,2,3].map(i => (
-        <div
-          key={i}
-          className={`h-2 w-4 rounded-sm transition-all ${i <= level ? colors[level-1] : "bg-slate-700"}`}
-        />
-      ))}
-    </div>
-  );
-}
+const diffStyles: Record<string, { color: string; bg: string; border: string }> = {
+  Easy: { color: "var(--green)", bg: "var(--green-dim)", border: "rgba(34,197,94,0.3)" },
+  Medium: { color: "var(--amber)", bg: "var(--amber-dim)", border: "rgba(245,158,11,0.3)" },
+  Hard: { color: "var(--red)", bg: "var(--red-dim)", border: "rgba(239,68,68,0.3)" },
+};
 
-// ─── Main component ───────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
-  const [items,       setItems]       = useState<LogItem[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState<string | null>(null);
-  const [search,      setSearch]      = useState("");
-  const [filterMode,  setFilterMode]  = useState<"due"|"all">("due");
-  const [nextCursor,  setNextCursor]  = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<LogItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"dueToday" | "overdue" | "all">("dueToday");
+  const [difficultyFilter, setDifficultyFilter] = useState<Record<string, boolean>>({
+    Easy: true,
+    Medium: true,
+    Hard: true,
+  });
+  const [patternFilter, setPatternFilter] = useState<string[]>([]);
+  const [userName, setUserName] = useState<string>("");
+  const [streak, setStreak] = useState<{ currentStreak: number } | null>(null);
+  const [readinessScore, setReadinessScore] = useState<number | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // ── Data fetching (unchanged logic) ────────────────────────────────────────
-  const fetchLogs = async (cursor?: string | null) => {
-    const token = getStoredToken();
-    if (!token) { router.push("/login"); return; }
-    const url = cursor ? `/api/log?limit=50&cursor=${cursor}` : "/api/log?limit=50";
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (res.status === 401) { router.push("/login"); return; }
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed to load"); }
-    return res.json() as Promise<{ items: LogItem[]; nextCursor: string | null; hasMore: boolean }>;
+  const getDueText = (dateStr: string) => {
+    const diff = new Date(dateStr).getTime() - Date.now();
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (days < 0) return { text: `Overdue by ${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""}`, colorVar: "var(--red)" };
+    if (days === 0) return { text: "Due today", colorVar: "var(--green)" };
+    return { text: `Due in ${days} days`, colorVar: "var(--text-2)" };
+  };
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore || !token) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/log?cursor=${nextCursor}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs((prev) => [...prev, ...(data.items || [])]);
+        setNextCursor(data.nextCursor);
+      }
+    } catch (err) {
+      console.error("Failed to load more:", err);
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token) { router.push("/login"); setLoading(false); return; }
-    let cancelled = false;
-    fetchLogs(null)
-      .then(d => { if (!cancelled && d) { setItems(d.items); setNextCursor(d.nextCursor); } })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    const storedToken = getStoredToken();
+    if (!storedToken) {
+      router.push("/login");
+      return;
+    }
+    setToken(storedToken);
+    try {
+      const raw = localStorage.getItem("gymUser");
+      if (raw) {
+        const u = JSON.parse(raw) as { email?: string };
+        const name = u?.email?.split("@")[0] || "";
+        setUserName(name ? name.charAt(0).toUpperCase() + name.slice(1) : "");
+      }
+    } catch {}
   }, [router]);
 
-  const loadMore = async () => {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const d = await fetchLogs(nextCursor);
-      if (d) { setItems(p => [...p, ...d.items]); setNextCursor(d.nextCursor); }
-    } finally { setLoadingMore(false); }
-  };
+  useEffect(() => {
+    if (!token) return;
+    const fetchLogs = async () => {
+      try {
+        const res = await fetch("/api/log", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.push("/login");
+            return;
+          }
+          throw new Error("Failed to fetch logs");
+        }
+        const data = await res.json();
+        setLogs(data.items || []);
+        setNextCursor(data.nextCursor || null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load review queue");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLogs();
+  }, [token, router]);
 
-  // ── Derived state ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    fetch("/api/analytics/streak", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStreak({ currentStreak: d.currentStreak ?? 0 }))
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch("/api/analytics/readiness-score", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setReadinessScore(d.score))
+      .catch(() => {});
+  }, [token]);
+
   const now = Date.now();
-  const dueItems = items.filter(p => new Date(p.nextReviewAt).getTime() <= now);
-  const visibleItems = items.filter(p => {
+  const allPatterns = [...new Set(logs.map((l) => l.category).filter(Boolean))] as string[];
+  const visibleItems = logs.filter((log) => {
     const matchSearch =
-      p.title.toLowerCase().includes(search.toLowerCase()) ||
-      (p.category?.toLowerCase() ?? "").includes(search.toLowerCase());
+      log.title.toLowerCase().includes(search.toLowerCase()) ||
+      (log.category?.toLowerCase() ?? "").includes(search.toLowerCase());
     if (!matchSearch) return false;
-    return filterMode === "all" || new Date(p.nextReviewAt).getTime() <= now;
+    const due = new Date(log.nextReviewAt).getTime();
+    const isOverdue = due < now;
+    const isDueOrOverdue = due <= now;
+    if (statusFilter === "overdue" && !isOverdue) return false;
+    if (statusFilter === "dueToday" && !isDueOrOverdue) return false;
+    if (!difficultyFilter[log.difficulty ?? "Medium"]) return false;
+    if (patternFilter.length > 0 && !patternFilter.includes(log.category ?? "")) return false;
+    return true;
   });
 
-  const stats = {
-    total:    items.length,
-    due:      dueItems.length,
-    easy:     items.filter(p => p.difficulty === "Easy").length,
-    medium:   items.filter(p => p.difficulty === "Medium").length,
-    hard:     items.filter(p => p.difficulty === "Hard").length,
-    avgConf:  items.length ? (items.reduce((s,p) => s + p.confidence, 0) / items.length).toFixed(1) : "—",
+  const dueTodayCount = logs.filter((l) => new Date(l.nextReviewAt).getTime() <= now).length;
+  const overdueCount = logs.filter((l) => new Date(l.nextReviewAt).getTime() < now).length;
+
+  const clearFilters = () => {
+    setSearch("");
+    setStatusFilter("dueToday");
+    setDifficultyFilter({ Easy: true, Medium: true, Hard: true });
+    setPatternFilter([]);
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "var(--green)" }} />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      {/* ── Ambient background ─────────────────────────────────────────────── */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[600px] h-[400px] bg-violet-600/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/3 right-0 w-[400px] h-[400px] bg-indigo-600/4 rounded-full blur-3xl" />
+    <div className="space-y-6">
+      {/* Hero (spec: Welcome back, Streak, Readiness, Due Today badge) */}
+      <div
+        className="rounded border p-6 flex flex-wrap items-center justify-between gap-4"
+        style={{
+          backgroundColor: "var(--card)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: "var(--text)" }}>
+            Welcome back{userName ? `, ${userName}` : ""}
+          </h1>
+          <div className="flex items-center gap-4 mt-2">
+            {streak != null && (
+              <span className="text-sm" style={{ color: streak.currentStreak >= 7 ? "var(--green)" : "var(--muted)" }}>
+                🔥 {streak.currentStreak} day streak
+              </span>
+            )}
+            {readinessScore != null && (
+              <span className="text-sm" style={{ color: "var(--text-2)" }}>
+                Interview Readiness: <strong style={{ color: readinessScore >= 60 ? "var(--green)" : "var(--amber)" }}>{readinessScore}</strong> / 100
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm"
+            style={{ backgroundColor: "var(--green)", color: "#000000" }}
+          >
+            {dueTodayCount}
+          </div>
+          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+            Due today
+          </span>
+        </div>
       </div>
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <header className="mb-10">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
-                  <span className="text-violet-400 font-bold text-sm">λ</span>
-                </div>
-                <span className="text-xs font-semibold tracking-[0.15em] text-violet-400 uppercase">AlgoLens</span>
-              </div>
-              <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
-                Training Dashboard
-              </h1>
-              <p className="text-slate-500 mt-1.5 text-base">
-                Spaced repetition for DSA mastery. Stay consistent, crush interviews.
-              </p>
-            </div>
-            <Link
-              href="/how-it-works"
-              className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-400 transition-colors mt-1"
-            >
-              <HelpCircle size={13} /> How it works
-            </Link>
-          </div>
-        </header>
-
-        {/* ── Stats grid ─────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-8">
-
-          {/* Total */}
-          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 group">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold tracking-[0.12em] text-slate-500 uppercase">Problems</span>
-              <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center group-hover:bg-slate-700 transition-colors">
-                <Target size={14} className="text-slate-400" />
-              </div>
-            </div>
-            <p className="text-4xl font-bold text-white tabular-nums">{stats.total}</p>
-            <p className="text-sm text-slate-600 mt-1">logged total</p>
-          </div>
-
-          {/* Due */}
-          <div className={`relative rounded-2xl p-5 border overflow-hidden group ${
-            stats.due > 0
-              ? "bg-violet-600/10 border-violet-500/30"
-              : "bg-slate-900/70 border-slate-800/80"
-          }`}>
-            {stats.due > 0 && (
-              <div className="absolute top-0 right-0 w-24 h-24 bg-violet-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-            )}
-            <div className="flex items-center justify-between mb-3 relative">
-              <span className="text-xs font-bold tracking-[0.12em] text-slate-500 uppercase">Due Now</span>
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                stats.due > 0 ? "bg-violet-500/20" : "bg-slate-800"
-              }`}>
-                <Flame size={14} className={stats.due > 0 ? "text-violet-400" : "text-slate-500"} />
-              </div>
-            </div>
-            <p className={`text-4xl font-bold tabular-nums relative ${stats.due > 0 ? "text-violet-300" : "text-white"}`}>
-              {stats.due}
-            </p>
-            <p className="text-sm text-slate-600 mt-1 relative">to review</p>
-          </div>
-
-          {/* Difficulty spread */}
-          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold tracking-[0.12em] text-slate-500 uppercase">Split</span>
-              <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                <BarChart3 size={14} className="text-slate-400" />
-              </div>
-            </div>
-            <div className="flex items-end gap-1 h-8 mt-1">
-              {[
-                { v: stats.easy,   max: stats.total, c: "bg-emerald-500" },
-                { v: stats.medium, max: stats.total, c: "bg-amber-500"   },
-                { v: stats.hard,   max: stats.total, c: "bg-rose-500"    },
-              ].map(({ v, max, c }, i) => (
-                <div key={i} className="flex-1 bg-slate-800 rounded-sm overflow-hidden h-full flex items-end">
-                  <div
-                    className={`w-full ${c} rounded-sm transition-all`}
-                    style={{ height: max ? `${Math.max(8, (v/max)*100)}%` : "8%" }}
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3 mt-2 text-xs font-semibold">
-              <span className="text-emerald-400">E {stats.easy}</span>
-              <span className="text-amber-400">M {stats.medium}</span>
-              <span className="text-rose-400">H {stats.hard}</span>
-            </div>
-          </div>
-
-          {/* Avg confidence */}
-          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold tracking-[0.12em] text-slate-500 uppercase">Confidence</span>
-              <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                <TrendingUp size={14} className="text-slate-400" />
-              </div>
-            </div>
-            <p className="text-3xl font-bold text-white tabular-nums">{stats.avgConf}<span className="text-slate-600 text-lg font-normal">/3</span></p>
-            <p className="text-xs text-slate-600 mt-1">avg across all</p>
-          </div>
-
+      {error && (
+        <div
+          className="flex items-center gap-2 px-4 py-3 rounded border"
+          style={{
+            backgroundColor: "var(--red-dim)",
+            borderColor: "var(--red)",
+            color: "var(--red)",
+          }}
+        >
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
+      )}
 
-        {/* ── Extension callout strip ─────────────────────────────────────────── */}
-        <div className="mb-8 flex items-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-xl px-5 py-3.5">
-          <div className="w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
-            <Code2 size={15} className="text-violet-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-slate-300 font-medium">
-              Use the Chrome extension on LeetCode to log workouts and get AI coaching.
-            </p>
-          </div>
-          <a
-            href="https://leetcode.com"
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
-          >
-            Open LeetCode <ExternalLink size={11} />
-          </a>
-        </div>
-
-        {/* ── Review queue ───────────────────────────────────────────────────── */}
-        <section>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-white">Review Queue</h2>
-              {stats.due > 0 && (
-                <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/25">
-                  <Zap size={9} /> {stats.due} due
-                </span>
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              {/* Search */}
-              <div className="relative flex-1 sm:w-60">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-3.5 h-3.5" />
-                <input
-                  placeholder="Search problems or patterns…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="w-full bg-slate-900/60 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-base text-slate-200 placeholder-slate-600 focus:border-violet-500/60 focus:bg-slate-900 outline-none transition-all"
-                />
-              </div>
-              {/* Filter toggle */}
+      {/* Two-column: Sidebar 240px + Queue */}
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Sidebar filters (spec: 240px, sticky) */}
+        <aside
+          className="lg:w-[240px] shrink-0 rounded border p-5 lg:sticky lg:top-[80px] lg:self-start"
+          style={{
+            backgroundColor: "var(--surface)",
+            borderColor: "var(--border)",
+          }}
+        >
+          <h2 className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--muted)" }}>
+            Status
+          </h2>
+          <div className="space-y-1 mb-4">
+            {[
+              { key: "dueToday" as const, label: "Due Today", count: dueTodayCount },
+              { key: "overdue" as const, label: "Overdue", count: overdueCount, red: true },
+              { key: "all" as const, label: "All", count: logs.length },
+            ].map(({ key, label, count, red }) => (
               <button
+                key={key}
                 type="button"
-                onClick={() => setFilterMode(p => p === "due" ? "all" : "due")}
-                className={`px-3.5 rounded-xl border flex items-center gap-2 text-xs font-bold transition-all shrink-0 ${
-                  filterMode === "due"
-                    ? "bg-violet-600 border-violet-500 text-white shadow-lg shadow-violet-900/30"
-                    : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
-                }`}
-              >
-                <Filter size={13} />
-                {filterMode === "due" ? "Due" : "All"}
-              </button>
-            </div>
-          </div>
-
-          {/* ── States ─────────────────────────────────────────────────────── */}
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-28 gap-4 text-slate-500">
-              <Loader2 className="animate-spin w-8 h-8 text-violet-500" />
-              <span className="text-base">Loading your training log…</span>
-            </div>
-          ) : error ? (
-            <div className="py-24 flex flex-col items-center justify-center text-center border border-slate-800 rounded-2xl bg-slate-900/30">
-              <AlertCircle className="w-10 h-10 text-rose-500 mb-3" />
-              <p className="text-sm font-medium text-slate-300">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null); setLoading(true);
-                  fetchLogs(null)
-                    .then(d => { if (d) { setItems(d.items); setNextCursor(d.nextCursor); } })
-                    .catch(e => setError(e instanceof Error ? e.message : "Failed"))
-                    .finally(() => setLoading(false));
+                onClick={() => setStatusFilter(key)}
+                className="w-full flex items-center justify-between px-2 py-1.5 rounded text-left text-[13px] transition-colors"
+                style={{
+                  backgroundColor: statusFilter === key ? "var(--card)" : "transparent",
+                  color: statusFilter === key ? "var(--text)" : "var(--text-2)",
                 }}
-                className="mt-5 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-semibold text-slate-200 transition-colors"
               >
-                Retry
+                {label}
+                {count > 0 && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    style={{
+                      backgroundColor: red ? "var(--red-dim)" : "var(--green-dim)",
+                      color: red ? "var(--red)" : "var(--green)",
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
               </button>
-            </div>
-          ) : visibleItems.length === 0 ? (
-            <div className="py-28 flex flex-col items-center justify-center text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/20">
-              <div className="w-16 h-16 rounded-2xl bg-slate-800/80 flex items-center justify-center mb-5">
-                <Trophy className="w-8 h-8 text-amber-400" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-200">
-                {filterMode === "due" ? "All caught up!" : "No logs yet"}
-              </h3>
-              <p className="text-base text-slate-500 mt-2 max-w-[280px] leading-relaxed">
-                {filterMode === "due"
-                  ? "Nothing due right now. Keep practicing on LeetCode and log workouts with the extension."
-                  : "Install the AlgoLens extension, solve a LeetCode problem, and log it to see it here."}
+            ))}
+          </div>
+
+          <h2 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--muted)" }}>
+            Difficulty
+          </h2>
+          <div className="space-y-1 mb-4">
+            {(["Easy", "Medium", "Hard"] as const).map((d) => (
+              <label key={d} className="flex items-center gap-2 text-[13px] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={difficultyFilter[d]}
+                  onChange={(e) =>
+                    setDifficultyFilter((prev) => ({ ...prev, [d]: e.target.checked }))
+                  }
+                  className="rounded border"
+                  style={{ accentColor: "var(--green)" }}
+                />
+                <span style={{ color: "var(--text)" }}>{d}</span>
+              </label>
+            ))}
+          </div>
+
+          <h2 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--muted)" }}>
+            Pattern
+          </h2>
+          <select
+            multiple
+            value={patternFilter}
+            onChange={(e) =>
+              setPatternFilter(
+                Array.from(e.target.selectedOptions, (o) => o.value)
+              )
+            }
+            className="w-full rounded border px-2 py-1.5 text-[13px] mb-4 max-h-24"
+            style={{
+              backgroundColor: "var(--card)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+            }}
+          >
+            {allPatterns.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+
+          <div className="relative mb-4">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: "var(--muted)" }} />
+            <input
+              placeholder="Search problems..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded border pl-8 pr-3 py-1.5 text-[13px]"
+              style={{
+                backgroundColor: "var(--card)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-[11px] font-bold transition-colors"
+            style={{ color: "var(--muted)" }}
+          >
+            Clear filters
+          </button>
+        </aside>
+
+        {/* Review Queue (cards) */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>
+              Review Queue
+            </h2>
+            <span className="text-[13px]" style={{ color: "var(--muted)" }}>
+              {visibleItems.length} problems
+            </span>
+          </div>
+
+          {visibleItems.length === 0 ? (
+            <div
+              className="rounded border p-8 text-center"
+              style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}
+            >
+              <CheckCircle2 className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--green)" }} />
+              <p className="font-medium mb-1" style={{ color: "var(--text)" }}>
+                All caught up!
               </p>
-              <a
-                href="https://leetcode.com"
-                target="_blank"
-                rel="noreferrer"
-                className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-base font-bold rounded-xl transition-colors shadow-lg shadow-violet-900/30"
-              >
-                Go to LeetCode <ExternalLink size={14} />
-              </a>
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
+                No problems due for review. Keep grinding.
+              </p>
             </div>
           ) : (
-            /* ── Table ───────────────────────────────────────────────────── */
-            <div className="rounded-2xl border border-slate-800/80 overflow-hidden bg-slate-900/30 backdrop-blur-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-base">
-                  <thead>
-                    <tr className="border-b border-slate-800/80">
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em]">Problem</th>
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em] whitespace-nowrap">Difficulty</th>
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em] whitespace-nowrap">Pattern</th>
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em] whitespace-nowrap">Due</th>
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em] whitespace-nowrap">Confidence</th>
-                      <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-[0.1em] text-right whitespace-nowrap">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleItems.map((log, idx) => {
-                      const due  = getDueInfo(log.nextReviewAt, now);
-                      const diff = difficultyConfig[log.difficulty] ?? difficultyConfig.Medium;
-                      return (
-                        <tr
-                          key={log.id}
-                          className="border-b border-slate-800/50 hover:bg-slate-800/25 transition-colors group"
-                          style={{ animationDelay: `${idx * 30}ms` }}
+            <div className="space-y-3">
+              {visibleItems.map((log) => {
+                const due = getDueText(log.nextReviewAt);
+                const diff = diffStyles[log.difficulty ?? "Medium"] ?? diffStyles.Medium;
+                return (
+                  <div
+                    key={log.id}
+                    className="rounded border p-5 transition-all"
+                    style={{
+                      backgroundColor: "var(--card)",
+                      borderColor: "var(--border)",
+                    }}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/revise/${log.id}`}
+                          className="font-bold text-base hover:opacity-90"
+                          style={{ color: "var(--text)" }}
                         >
-                          {/* Title */}
-                          <td className="px-5 py-4 max-w-[240px]">
-                            <Link
-                              href={`/revise/${log.id}`}
-                              className="font-semibold text-slate-200 hover:text-violet-300 transition-colors line-clamp-1"
+                          {log.title}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <span
+                            className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border"
+                            style={{
+                              color: diff.color,
+                              backgroundColor: diff.bg,
+                              borderColor: diff.border,
+                            }}
+                          >
+                            {log.difficulty ?? "Medium"}
+                          </span>
+                          <span className="text-[11px]" style={{ color: due.colorVar }}>
+                            {due.text}
+                          </span>
+                          {log.category && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded"
+                              style={{
+                                backgroundColor: "var(--surface)",
+                                color: "var(--muted)",
+                              }}
                             >
-                              {log.title}
-                            </Link>
-                          </td>
-
-                          {/* Difficulty */}
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg font-bold border ${diff.cls}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${diff.dot}`} />
-                              {diff.label}
+                              {log.category}
                             </span>
-                          </td>
-
-                          {/* Pattern */}
-                          <td className="px-5 py-4">
-                            {log.category ? (
-                              <span className="text-xs text-slate-400 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50">
-                                {log.category}
-                              </span>
-                            ) : (
-                              <span className="text-slate-600 text-xs">—</span>
-                            )}
-                          </td>
-
-                          {/* Due */}
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg border ${due.bg} ${due.cls}`}>
-                              <Clock size={10} />
-                              {due.label}
-                            </span>
-                          </td>
-
-                          {/* Confidence */}
-                          <td className="px-5 py-4">
-                            <ConfidenceBar level={log.confidence} />
-                          </td>
-
-                          {/* Actions */}
-                          <td className="px-5 py-4 text-right">
-                            <div className="flex items-center justify-end gap-3">
-                              <Link
-                                href={`/revise/${log.id}`}
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-violet-400 hover:text-violet-300 transition-colors"
-                              >
-                                Review <ChevronRight size={12} />
-                              </Link>
-                              <a
-                                href={`https://leetcode.com/problems/${log.slug}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs font-medium text-slate-600 hover:text-slate-400 transition-colors inline-flex items-center gap-0.5"
-                              >
-                                LC <ExternalLink size={10} />
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
+                          )}
+                        </div>
+                        <div className="flex gap-0.5 mt-2">
+                          {[1, 2, 3].map((level) => (
+                            <div
+                              key={level}
+                              className="w-2 h-2 rounded-sm"
+                              style={{
+                                backgroundColor:
+                                  level <= log.confidence
+                                    ? log.confidence === 1
+                                      ? "var(--red)"
+                                      : log.confidence === 2
+                                        ? "var(--amber)"
+                                        : "var(--green)"
+                                    : "var(--border)",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Link
+                          href={`/revise/${log.id}`}
+                          className="px-4 py-2 rounded font-bold text-[13px] transition-colors"
+                          style={{
+                            backgroundColor: "var(--green)",
+                            color: "#000000",
+                          }}
+                        >
+                          Revise
+                        </Link>
+                        <a
+                          href={`https://leetcode.com/problems/${log.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-0.5 text-[13px] transition-colors"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Open in LeetCode <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
               {nextCursor && (
-                <div className="px-5 py-4 border-t border-slate-800/60 flex justify-center">
+                <div className="pt-4 flex justify-center">
                   <button
                     type="button"
                     onClick={loadMore}
                     disabled={loadingMore}
-                    className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-300 transition-colors flex items-center gap-2 border border-slate-700/50"
+                    className="px-5 py-2.5 rounded border text-[13px] font-medium disabled:opacity-50 transition-colors"
+                    style={{
+                      backgroundColor: "var(--card)",
+                      borderColor: "var(--border)",
+                      color: "var(--text)",
+                    }}
                   >
-                    {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load more"}
+                    {loadingMore ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Load more"}
                   </button>
                 </div>
               )}
             </div>
           )}
-        </section>
-
-        {/* ── Mobile how-it-works link ───────────────────────────────────────── */}
-        <div className="mt-8 sm:hidden text-center">
-          <Link href="/how-it-works" className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-400 transition-colors">
-            <HelpCircle size={13} /> New here? See how it works
-          </Link>
         </div>
       </div>
     </div>
